@@ -635,7 +635,8 @@
 
     let userAnswers = new Array(quizData.length).fill(null);
     let currentIdx = 0;
-    let isSubmitted = false;
+    // Mảng lưu trạng thái xem câu đó đã chọn đáp án chưa để khóa lại
+    let answeredQuestions = new Array(quizData.length).fill(false);
 
     // Hiển thị danh sách ô số câu hỏi bên sidebar
     function initSidebar() {
@@ -645,18 +646,13 @@
             const btn = document.createElement('button');
             btn.className = 'nav-btn';
             btn.id = `nav-btn-${index}`;
-            
-            // Lấy số tự động từ câu hỏi gốc để in ra ô sidebar
             const match = item.question.match(/Câu\s*(\d+)/i);
-            const questionNumber = match ? match[1] : (index + 1);
-            
-            btn.innerText = questionNumber;
+            btn.innerText = match ? match[1] : (index + 1);
             btn.onclick = () => jumpToQuestion(index);
             navGrid.appendChild(btn);
         });
     }
 
-    // Hiển thị nội dung câu hỏi hiện tại
     function renderQuestion() {
         const quizArea = document.getElementById('quiz-area');
         const currentData = quizData[currentIdx];
@@ -664,23 +660,22 @@
         let optionsHTML = '';
         currentData.options.forEach((option, optionIdx) => {
             let itemClass = 'option-item';
-            let checkedAttr = userAnswers[currentIdx] === optionIdx ? 'checked' : '';
-            let disabledAttr = isSubmitted ? 'disabled' : '';
+            let disabledAttr = answeredQuestions[currentIdx] ? 'disabled' : '';
 
-            // Xử lý tô màu đỏ/xanh sau khi nộp bài
-            if (isSubmitted) {
-                itemClass += ' disabled';
+            // Tô màu ngay khi đã chọn (nếu câu này đã làm)
+            if (answeredQuestions[currentIdx]) {
                 if (optionIdx === currentData.correctAnswer) {
-                    itemClass += ' correct-fill'; // Đáp án đúng luôn màu xanh
-                } else if (userAnswers[currentIdx] === optionIdx && optionIdx !== currentData.correctAnswer) {
-                    itemClass += ' incorrect-fill'; // Đáp án người dùng chọn sai màu đỏ
+                    itemClass += ' correct-fill';
+                } else if (userAnswers[currentIdx] === optionIdx) {
+                    itemClass += ' incorrect-fill';
                 }
+                itemClass += ' disabled';
             }
 
             optionsHTML += `
                 <label class="${itemClass}">
                     <input type="radio" name="q-${currentIdx}" value="${optionIdx}" 
-                        ${checkedAttr} ${disabledAttr} onchange="selectOption(${optionIdx})">
+                        ${disabledAttr} onchange="selectOption(${optionIdx})">
                     ${option}
                 </label>
             `;
@@ -694,39 +689,47 @@
         updateSidebarStatus();
     }
 
-    // Cập nhật trạng thái màu sắc của các ô số bên sidebar
     function updateSidebarStatus() {
         quizData.forEach((_, index) => {
             const btn = document.getElementById(`nav-btn-${index}`);
             btn.classList.remove('current', 'answered', 'correct', 'incorrect');
 
-            if (isSubmitted) {
-                // Trạng thái sau khi nộp bài
+            if (answeredQuestions[index]) {
                 if (userAnswers[index] === quizData[index].correctAnswer) {
                     btn.classList.add('correct');
                 } else {
                     btn.classList.add('incorrect');
                 }
             } else {
-                // Trạng thái khi đang làm bài
-                if (userAnswers[index] !== null) {
-                    btn.classList.add('answered'); // Đã làm
-                }
-                if (index === currentIdx) {
-                    btn.classList.add('current'); // Câu đang xem
-                }
+                if (index === currentIdx) btn.classList.add('current');
             }
         });
     }
 
-    // Ghi nhận đáp án khi người dùng click chọn
     function selectOption(optionIdx) {
-        if (isSubmitted) return;
+        if (answeredQuestions[currentIdx]) return;
+        
+        answeredQuestions[currentIdx] = true;
         userAnswers[currentIdx] = optionIdx;
-        updateSidebarStatus();
+        
+        // Render lại để hiển thị màu Đúng/Sai ngay lập tức
+        renderQuestion();
+        
+        // Cập nhật tổng kết nếu đã làm hết
+        checkOverallProgress();
     }
 
-    // Chuyển câu hỏi bằng nút Trước/Sau
+    function checkOverallProgress() {
+        const totalAnswered = answeredQuestions.filter(a => a === true).length;
+        if (totalAnswered === quizData.length) {
+            let correctCount = userAnswers.filter((ans, idx) => ans === quizData[idx].correctAnswer).length;
+            const resultBox = document.getElementById('result-box');
+            resultBox.style.display = 'block';
+            resultBox.className = (correctCount / quizData.length) >= 0.5 ? 'correct-fill' : 'incorrect-fill';
+            resultBox.innerText = `Hoàn thành! Đúng ${correctCount}/${quizData.length} câu`;
+        }
+    }
+
     function changeQuestion(step) {
         let targetIdx = currentIdx + step;
         if (targetIdx >= 0 && targetIdx < quizData.length) {
@@ -735,46 +738,14 @@
         }
     }
 
-    // Nhảy trực tiếp đến câu hỏi khi bấm vào ô số ở sidebar
     function jumpToQuestion(index) {
         currentIdx = index;
         renderQuestion();
     }
 
-    // Tính điểm và chấm bài
-    function submitQuiz() {
-        if (isSubmitted) return;
-        
-        // Xác nhận nộp bài nếu còn câu chưa làm
-        const unanswered = userAnswers.includes(null);
-        if (unanswered) {
-            if (!confirm("Bạn còn câu hỏi chưa hoàn thành. Vẫn muốn nộp bài?")) {
-                return;
-            }
-        }
+    // Ẩn nút Nộp bài vì đã chấm điểm tự động
+    document.getElementById('submit-btn').style.display = 'none';
 
-        isSubmitted = true;
-        let correctCount = 0;
-
-        quizData.forEach((item, index) => {
-            if (userAnswers[index] === item.correctAnswer) {
-                correctCount++;
-            }
-        });
-
-        // Hiển thị kết quả dạng đúng xx/xxx câu
-        const resultBox = document.getElementById('result-box');
-        resultBox.style.display = 'block';
-        resultBox.className = (correctCount / quizData.length) >= 0.5 ? 'correct-fill' : 'incorrect-fill';
-        resultBox.innerText = `Đúng ${correctCount}/${quizData.length} câu`;
-
-        document.getElementById('submit-btn').classList.add('disabled');
-
-        // Render lại giao diện câu hiện tại để cập nhật màu sắc đáp án
-        renderQuestion();
-    }
-
-    // Khởi chạy hệ thống khi tải trang xong
     initSidebar();
     renderQuestion();
 </script>
